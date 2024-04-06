@@ -7,55 +7,88 @@
 #include <unistd.h>
 #include <time.h>
 
+
+void listare_director(const char * dirname ){
+    DIR *dir;
+    struct dirent*entry;
+    struct stat info;
+    dir = opendir(dirname);
+    if(!dir){
+        perror("opendir");
+        return;
+    }
+    
+
+    while ((entry = readdir(dir))!=NULL)
+    {
+        char path[512];
+        sprintf(path , "%s/%s" , dirname, entry->d_name);
+        if(strcmp(entry->d_name, ".")==0 || strcmp(entry->d_name, "..")==0){
+            continue;
+        }
+        printf("Nume : %s\n", entry->d_name);
+        if(stat(path, &info)==-1){
+            perror("stat");
+            continue;
+        }
+        if(S_ISDIR(info.st_mode)){
+            char output_Snap[512];
+            printf("Tip : Director \n");
+            printf("Data ultimei modificari: %s\n", ctime(&info.st_mtime));
+            printf("\n");
+
+            sprintf(output_Snap, "%s/%s/SnapshotSubDir.txt", dirname,entry->d_name); 
+            FILE*file = fopen(output_Snap, "w");
+            if(file == NULL){
+                printf("Nu s-a putut creea file-ul!");
+                closedir(dir);
+                return;
+            }
+
+
+            fprintf(file, "Tip : Director %s\n", entry->d_name);
+            fprintf(file, "Data ultimei modificari: %s\n\n", ctime(&info.st_mtime));
+            fclose(file);
+            listare_director(path);
+        }else{
+            char SnapshotFisiere[512];
+            printf("Tip: Fisier\n");
+            printf("Dimensiune: %ld bytes\n", info.st_size);
+            printf("Data ultimei modificari: %s\n", ctime(&info.st_mtime));
+            printf("\n");
+
+            char numeFisier[512];
+            sprintf(numeFisier, "%s-SnapshotFisier.txt", entry->d_name);
+
+            sprintf(SnapshotFisiere, "%s/%s", dirname, numeFisier);
+
+            FILE *file2 = fopen(SnapshotFisiere, "w");
+            if (file2 == NULL) {
+                perror("Eroare creare snapshot fisiere !");
+                continue;
+            }
+            fprintf(file2, "Tip: Fisier\n");
+            fprintf(file2, "Dimensiune: %ld bytes\n", info.st_size);
+            fprintf(file2, "Data ultimei modificari: %s\n\n", ctime(&info.st_mtime));
+            fclose(file2);
+        } 
+    }
+    closedir(dir);
+}
+
+
+
 int main(int argc, char *argv[])
 {
     if(argc != 2){
         printf("Introduceti denumirea unui director \n");
         return 1;
     }
-    DIR *folder;
-    struct dirent *entry;
-    struct stat filestat;
-    int count = 1;
-    off_t total = 0;
+    if(argc!= 2){
+        fprintf(stderr , "Usage: %s directory \n", argv[0]);
 
-    folder = opendir(argv[1]);
-    if(folder == NULL)
-    {
-        perror("Unable to read directory");
-        return(1);
     }
-
-    printf("Directory of %s\n\n",argv[1]);
-
-    while( (entry=readdir(folder)) )
-    {
-        char filepath[512];
-        sprintf(filepath ," %s/%s ", argv[1], entry->d_name);
-
-        if(strcmp(entry->d_name, "." )==0 || strcmp(entry->d_name , "..") == 0)
-            continue;
-        stat(filepath ,&filestat);
-        //     perror("Unable to get file status");
-        //     return 1;
-        // }
-
-        printf("%-16s",entry->d_name);
-
-        if( S_ISDIR(filestat.st_mode) )
-            printf("%-8s  ","<DIR>");
-        else
-        {
-            printf("%ld  ",filestat.st_size);
-            total+=filestat.st_size;
-        }
-
-        printf("%s",ctime(&filestat.st_mtime));
-        count++;
-    }
-
-    closedir(folder);
-    printf("\n%d File(s) for %ld bytes\n", count, total);
-
-    return(0);
+    listare_director(argv[1]);
+     return(0);
 }
+
