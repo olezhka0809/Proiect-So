@@ -6,22 +6,25 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <sys/wait.h>
 #include <time.h>
 
-void create_snapshot(const char *dirname) {
+#define MAX_DIRECTORIES 10
+
+void update_snapshot(const char *dirname, const char *output_dir) {
+    DIR *dir;
     struct dirent *entry;
     struct stat info;
 
-    DIR *dir = opendir(dirname);
+    dir = opendir(dirname);
     if (!dir) {
         perror("opendir");
         return;
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        char path[512];
+        char path[1024];
         sprintf(path, "%s/%s", dirname, entry->d_name);
+
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
@@ -31,92 +34,61 @@ void create_snapshot(const char *dirname) {
             continue;
         }
 
-        char output_Snap[512];
-        sprintf(output_Snap, "%s/Snapshot%s.txt", dirname, entry->d_name);
-        int file = open(output_Snap, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (file == -1) {
-            perror("Nu s-a putut crea fișierul!");
-            exit(EXIT_FAILURE);
-        }
-
-        char data_modificare[512];
-        sprintf(data_modificare, "Data ultimei modificari: %s\n\n", ctime(&info.st_mtime));
-        write(file, "Tip : Director ", strlen("Tip : Director "));
-        write(file, entry->d_name, strlen(entry->d_name));
-        write(file, "\n", 1);
-        write(file, data_modificare, strlen(data_modificare));
-
-        close(file);
-    }
-    closedir(dir);
-}
-
-void listare_director(const char *dirname) {
-    struct dirent *entry;
-    struct stat info;
-
-    DIR *dir = opendir(dirname);
-    if (!dir) {
-        perror("opendir");
-        return;
-    }
-
-    while ((entry = readdir(dir)) != NULL) {
-        char path[512];
-        sprintf(path, "%s/%s", dirname, entry->d_name);
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-
-        if (stat(path, &info) == -1) {
-            perror("stat");
-            continue;
-        }
+        char snapshot_info[1024];
+        sprintf(snapshot_info, "Nume: %s\n", entry->d_name);
 
         if (S_ISDIR(info.st_mode)) {
-            pid_t child_pid = fork();
-            if (child_pid == -1) {
-                perror("fork");
-                continue;
+            sprintf(snapshot_info + strlen(snapshot_info), "Tip: Director\n");
+            sprintf(snapshot_info + strlen(snapshot_info), "Data ultimei modificări: %s\n\n", ctime(&info.st_mtime));
+
+            // Creează fișierul de snapshot pentru subdirector
+            char subdir_snapshot[1024];
+            snprintf(subdir_snapshot, sizeof(subdir_snapshot), "%s/%s_snapshot.txt", output_dir, entry->d_name);
+            int subdir_file = open(subdir_snapshot, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (subdir_file == -1) {
+                perror("Eroare la crearea fișierului de snapshot pentru subdirector!");
+                closedir(dir);
+                return;
             }
-            if (child_pid == 0) { 
-                printf("Proces copil cu PID-ul %d creat.\n", getpid());
-                printf("Director: %s\n", entry->d_name);
-                create_snapshot(path);
-                printf("Snapshot pentru directorul %s creat cu succes.\n", entry->d_name);
-                exit(EXIT_SUCCESS);
+            write(subdir_file, snapshot_info, strlen(snapshot_info));
+            close(subdir_file);
+
+            update_snapshot(path, output_dir);
+        } else {
+            sprintf(snapshot_info + strlen(snapshot_info), "Tip: Fișier\n");
+            sprintf(snapshot_info + strlen(snapshot_info), "Dimensiune: %ld bytes\n", info.st_size);
+            sprintf(snapshot_info + strlen(snapshot_info), "Data ultimei modificări: %s\n\n", ctime(&info.st_mtime));
+
+            // Creează fișierul de snapshot pentru fișier
+            char snapshot_file[1024];
+            snprintf(snapshot_file, sizeof(snapshot_file), "%s/%s_snapshot.txt", output_dir, entry->d_name);
+            int file = open(snapshot_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (file == -1) {
+                perror("Eroare la crearea fișierului de snapshot pentru fișier!");
+                closedir(dir);
+                return;
             }
+            write(file, snapshot_info, strlen(snapshot_info));
+            close(file);
         }
     }
     closedir(dir);
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        printf("Folosire: %s <director_iesire> <director_1> [<director_2> ...]\n", argv[0]);
+    if (argc < 4 || argc > MAX_DIRECTORIES + 3) {
+        printf("Utilizare: %s -o director_iesire dir1 [dir2 ... dirN]\n", argv[0]);
         return 1;
     }
 
-    int num_directories = argc - 2;
-    char **directories = argv + 2;
-
-    for (int i = 0; i < num_directories; i++) {
-        pid_t child_pid = fork();
-        if (child_pid == -1) {
-            perror("fork");
-            continue;
-        }
-        if (child_pid == 0) { 
-            listare_director(directories[i]);
-            exit(EXIT_SUCCESS);
-        }
+    if (strcmp(argv[1], "-o") != 0) {
+        printf("Opțiunea de director de ieșire lipsește sau este incorectă!\n");
+        return 1;
     }
 
-    
-    for (int i = 0; i < num_directories; i++) {
-        int status;
-        pid_t child_pid = wait(&status);
-        printf("Procesul copil cu PID-ul %d s-a încheiat cu codul %d.\n", child_pid, WEXITSTATUS(status));
+    const char *output_dir = argv[2];
+    for (int i = 3; i < argc; i++) {
+        update_snapshot(argv[i], output_dir);
     }
 
     return 0;
